@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Location Component</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: black; /* Optional: To match text background */
+            color: white; /* Default text color */
+            height: 20px;
+        }
+        #container {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 1000; /* Ensure it is on top of other content */
+        }
+        #location {
+            color: white;
+            background-color: black; /* Optional: To ensure the text stands out */
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+        button {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50; /* Green background */
+            color: white; /* White text */
+            border: none; /* Remove border */
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #45a049; /* Darker green on hover */
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <button onclick="getLocation()">Get Location</button>
+        <p id="location"></p>
+    </div>
+
+    <script>
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(showPosition);
+            } else {
+                document.getElementById("location").innerHTML = "Geolocation is not supported by this browser.";
+            }
+        }
+
+        function showPosition(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            document.getElementById("location").innerHTML = `Latitude: ${lat}, Longitude: ${lon}`;
+
+            // Pass data back to Streamlit
+            window.parent.postMessage({type: 'location', lat: lat, lon: lon}, '*');
+        }
+    </script>
+</body>
+</html>
