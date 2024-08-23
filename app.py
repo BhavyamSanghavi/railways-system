@@ -1,15 +1,16 @@
+from pymongo import MongoClient
 import streamlit as st
 from PIL import Image
 import google.generativeai as genai
 import io
 import streamlit.components.v1 as components
-import json
+from datetime import datetime, timezone
 
 # Configure the Google Generative AI API
 genai.configure(api_key="AIzaSyCmOoKfi4I9sO1QW0qSEfmm93lmwu42pTA")
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Define the complaint categories
+
 complaint_categories = [
     "Food Quality",
     "Food Safety",
@@ -28,171 +29,108 @@ complaint_categories = [
     "Food Availability"
 ]
 
+# MongoDB connection
+def get_mongo_client():
+    client = MongoClient('mongodb+srv://jawan2608:vgIsDeU7MZvmZXE5@railways.9alpg.mongodb.net/?retryWrites=true&w=majority&appName=Railways')
+    return client
+
+# Insert complaint into MongoDB
+def insert_complaint(data):
+    client = get_mongo_client()
+    db = client['complaints_db']  # Database name
+    collection = db['complaints']  # Collection name
+    result = collection.insert_one(data)
+    return result.inserted_id
+
+# Function to render the location component
 def location_component():
     with open("location_component.html", "r") as f:
         html_code = f.read()
-    return components.html(html_code, height=85)
+    components.html(html_code, height=85)
 
-# Display the location component
-st.write("Click the button below to get your location:")
-location_component()
+# Store location in a variable
+def get_location():
+    return st.session_state.get('location', "Unknown")
 
-
+# Streamlit UI
 st.title('Railway Complaint Classifier')
-
-
-# Get location data from query parameters
-location_data = st.query_params.get('location')
-if location_data:
-    try:
-        # Convert to JSON
-        location = json.loads(location_data[0])
-        print(location)
-        latitude = location['lat']
-        longitude = location['lon']
-        prompt = "give name of the place and the city with latitude={latitude},longitude={longitude}"
-        response = model.generate_content(prompt)
-        st.success(response.text)
-    except json.JSONDecodeError:
-        st.write("Unable to decode location data.")
-# else:
-#     st.write("Location data not available.")
 
 # Initialize session state if not already present
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# Function to add entry to history
-def add_to_history(category, summary, type):
-    st.session_state.history.append({'Type': type, 'Category': category, 'Summary': summary})
+# Upload either an image or a video
+uploaded_file = st.file_uploader("Upload an image or video", type=["jpg", "jpeg", "png", "mp4", "avi", "mov"])
 
-# Allow users to choose between image and text classification
-option = st.selectbox("Choose functionality", ["Upload Image", "Post Message", "Upload Video","View History"])
+# Input text
+user_text = st.text_area("Enter your review (optional):", "")
 
-if option == "Upload Image":
-    try:
-        # Upload image
-        uploaded_file = st.file_uploader("Choose an image...", type="jpg")
+# Render the location component
+location_component()
 
-        if uploaded_file is not None:
-            # Load the image
+# Extract location data
+location = get_location()
+
+if st.button("Send Complaint"):
+    # Initialize summaries and data
+    image_summary = None
+    text_summary = None
+    file_data = None
+    content_type = None
+
+    if uploaded_file is not None:
+        file_type = uploaded_file.type.split('/')[0]  # image or video
+        content_type = "Image" if file_type == "image" else "Video"
+
+        if file_type == "image":
             image = Image.open(uploaded_file)
             st.image(image, caption='Uploaded Image', use_column_width=True)
-
-            # Convert image to bytes
             image_bytes = io.BytesIO()
             image.save(image_bytes, format='JPEG')
-            image_data = image_bytes.getvalue()
+            file_data = image_bytes.getvalue()
+            prompt = f"Classify the provided image into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
+        elif file_type == "video":
+            st.video(uploaded_file)
+            file_data = io.BytesIO(uploaded_file.read()).getvalue()
+            prompt = f"Classify the provided video into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
 
-            # Prepare the prompt
-            prompt = "Classify the provided image into one of the following categories and give one line summary of the image: " + ", ".join(complaint_categories)
+        # Make sure to only use the image or video data for the API call
+        response = model.generate_content([image, prompt])
+        image_summary = response.text if response else "No summary available"
+        st.write(f"{content_type} Classification and Summary:")
+        st.success(image_summary)
+    
+    if user_text:
+        prompt = f"{user_text} Rate this sentence on a scale of 0-5 whether the review is positive or negative and on what scale. Also, write only the summary of the review. Classify this from the following categories: {', '.join(complaint_categories)}"
+        response = model.generate_content(prompt)
+        text_summary = response.text if response else "No summary available"
+        st.write("Text Classification and Summary:")
+        st.success(text_summary)
+    
+    # Determine category based on either summary
+    category = next((i for i in complaint_categories if i in (text_summary or '') or i in (image_summary or '')), "Uncategorized")
+    location_data = st.session_state.get('location', {})
 
-            # Generate the classification and summary
-            response = model.generate_content([image, prompt])
+    # Extract the latitude and longitude from the location data
+    latitude = location_data.get('latitude')
+    longitude = location_data.get('longitude')
 
-            # Display the result
-            st.write("Classification and Summary:")
-            st.success(response.text)
+    # Prepare data to insert into MongoDB
+    complaint_data = {
+        "category": category,
+        "original_complaint": user_text,
+        "image_summary": image_summary,
+        "text_summary": text_summary,
+        "file_data": file_data,  # Store as binary data
+        "status": "pending",
+        "location": {
+            "latitude": latitude,
+            "longitude": longitude
+        },
+        "timestamp": datetime.now(timezone.utc)
+    }
 
-            # Extract category and summary
-            category = ""
-            summary = ""
-            for i in complaint_categories:
-                if i in response.text:
-                    category = i
-                    break
+    # Insert into MongoDB
+    insert_complaint(complaint_data)
 
-            if '.' in response.text:
-                summary = response.text.split('.')[1].strip()
-            else:
-                summary = "No summary available"
-
-            add_to_history(category, summary, 'Image Classification')
-            
-    except Exception as e:
-        pass  # Suppress all errors
-
-elif option == "Post Message":
-    try:
-        # Input text
-        user_text = st.text_area("Enter your review:", "")
-
-        if st.button("Classify Text"):
-            # Generate text classification
-            prompt = f"{user_text} Rate this sentence on a scale of 0-5 whether the review is positive or negative and on what scale also write only summary of the review. Classify this from the following categories: " + ", ".join(complaint_categories)
-            response = model.generate_content(prompt)
-
-            # Display the result
-            st.write("Text Classification and Summary:")
-            st.success(response.text)
-
-            # Extract category and summary
-            category = ""
-            summary = ""
-            for i in complaint_categories:
-                if i in response.text:
-                    category = i
-                    break
-
-            if ':' in response.text:
-                parts = response.text.split(':', 1)
-                category = parts[0].strip()
-                summary = parts[1].strip()
-            else:
-                summary = "No summary available"
-
-            add_to_history(category, summary, 'Text Classification')
-    except Exception as e:
-        pass  # Suppress all errors
-
-elif option == "Upload Video":
-    try:
-        # Upload video
-        uploaded_video = st.file_uploader("Choose a video...", type=["mp4", "avi", "mov"])
-
-        if uploaded_video is not None:
-            # Load the video
-            st.video(uploaded_video)
-
-            # Convert video to bytes
-            video_bytes = io.BytesIO(uploaded_video.read())
-            video_data = video_bytes.getvalue()
-
-            # Prepare the prompt
-            prompt = "Classify the provided video into one of the following categories and give one line summary of the video: " + ", ".join(complaint_categories)
-
-            # Generate the classification and summary
-            response = model.generate_content([video_data, prompt])
-
-            # Display the result
-            st.write("Classification and Summary:")
-            st.success(response.text)
-
-            # Extract category and summary
-            category = ""
-            summary = ""
-            for i in complaint_categories:
-                if i in response.text:
-                    category = i
-                    break
-
-            if '.' in response.text:
-                summary = response.text.split('.')[1].strip()
-            else:
-                summary = "No summary available"
-
-            add_to_history(category, summary, 'Video Classification')
-    except Exception as e:
-        pass
-
-
-elif option == "View History":
-    try:
-        st.header('History Dashboard')
-        if st.session_state.history:
-            st.write("### Previous Classifications")
-            st.table(st.session_state.history)
-        else:
-            st.write("No history available.")
-    except Exception as e:
-        pass  # Suppress all errors
+    
