@@ -5,6 +5,7 @@ import google.generativeai as genai
 import io
 import streamlit.components.v1 as components
 from datetime import datetime, timezone
+import base64
 
 # Configure the Google Generative AI API
 genai.configure(api_key="AIzaSyCmOoKfi4I9sO1QW0qSEfmm93lmwu42pTA")
@@ -52,6 +53,12 @@ def location_component():
 def get_location():
     return st.session_state.get('location', "Unknown")
 
+# Convert image to base64 string
+def image_to_base64(image):
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
 # Streamlit UI
 st.title('Railway Complaint Classifier')
 
@@ -85,10 +92,9 @@ if st.button("Send Complaint"):
         if file_type == "image":
             image = Image.open(uploaded_file)
             st.image(image, caption='Uploaded Image', use_column_width=True)
-            image_bytes = io.BytesIO()
-            image.save(image_bytes, format='JPEG')
-            file_data = image_bytes.getvalue()
+            image_base64 = image_to_base64(image)  # Convert image to base64 string
             prompt = f"Classify the provided image into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
+            file_data = image_base64  # Store the base64 string
         elif file_type == "video":
             st.video(uploaded_file)
             file_data = io.BytesIO(uploaded_file.read()).getvalue()
@@ -121,7 +127,7 @@ if st.button("Send Complaint"):
         "original_complaint": user_text,
         "image_summary": image_summary,
         "text_summary": text_summary,
-        "file_data": file_data,  # Store as binary data
+        "file_data": file_data,  # Store the base64 string for the image
         "status": "pending",
         "location": {
             "latitude": latitude,
@@ -132,5 +138,3 @@ if st.button("Send Complaint"):
 
     # Insert into MongoDB
     insert_complaint(complaint_data)
-
-    
