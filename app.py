@@ -93,12 +93,12 @@ if st.button("Send Complaint"):
             image = Image.open(uploaded_file)
             st.image(image, caption='Uploaded Image', use_column_width=True)
             image_base64 = image_to_base64(image)  # Convert image to base64 string
-            prompt = f"Classify the provided image into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
+            prompt = f"Rate this sentence on a scale of 0-5 whether the review is positive or negative and on what scale. Classify the provided image into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
             file_data = image_base64  # Store the base64 string
         elif file_type == "video":
             st.video(uploaded_file)
             file_data = io.BytesIO(uploaded_file.read()).getvalue()
-            prompt = f"Classify the provided video into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
+            prompt = f"Rate this sentence on a scale of 0-5 whether the review is positive or negative and on what scale. Classify the provided video into one of the following categories and give a one-line summary: {', '.join(complaint_categories)}"
 
         # Make sure to only use the image or video data for the API call
         response = model.generate_content([image, prompt])
